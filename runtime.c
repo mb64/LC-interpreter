@@ -1,4 +1,39 @@
-#include "t.h"
+#include "runtime.h"
+
+enum gc_type { MAJOR, MINOR };
+static void copy_to_old_space(obj **o, enum gc_type type);
+static void process_copy_stack(enum gc_type type);
+static void collect_roots(enum gc_type type);
+
+// Simple generational semispace GC
+// Allocations go downards
+#define NURSERY_BYTES (2*1024*1024) // 2M nursery
+static word *nursery_start;
+static word *nursery_top;
+#define IS_YOUNG(o) ((size_t) (o) - (size_t) nursery_start < NURSERY_BYTES)
+
+static word *old_start;
+static word *old_top;
+static word *other_old_start;
+static size_t old_space_size;
+static size_t other_old_space_size;
+
+// Remembered set: a growable (malloc'd) vector of old objects 'REF ptr' that
+// point to the nursery
+static obj **remembered_set;
+static size_t remembered_set_size;
+static size_t remembered_set_cap;
+
+// Copy stack: during GC, a worklist of new to-space objects whose fields still
+// point to the from-space
+static obj **copy_stack;
+static size_t copy_stack_size;
+static size_t copy_stack_cap;
+
+obj **data_stack_top;
+obj **data_stack_start;
+
+obj *self;
 
 void runtime_init(void) {
   copy_stack = (obj **) malloc(4096);
@@ -12,11 +47,10 @@ void runtime_init(void) {
   nursery_start = (word *) malloc(NURSERY_BYTES);
   nursery_top = nursery_start + NURSERY_BYTES / sizeof(word);
 
-  /* old space will be allocated on first minor GC */
-  old_size_bytes = 0;
-  old_start = NULL;
-  old_top = NULL;
-  used_space_prev_gc = 0;
+  old_start = (word *) malloc(2 * NURSERY_BYTES);
+  old_top = old_start + 2 * NURSERY_BYTES / sizeof(word);
+  other_old_start = NULL;
+  old_space_size = other_old_space_size = 2 * NURSERY_BYTES;
 
   data_stack_start = malloc(DATA_STACK_BYTES);
   data_stack_top = data_stack_start + DATA_STACK_BYTES / sizeof(obj *);
@@ -24,11 +58,13 @@ void runtime_init(void) {
 
 /* ought to be inlined */
 obj *alloc(halfword size, halfword tag) {
+  /* DEBUG("Allocating 1+%d words\n", size); */
   word *ptr = nursery_top - size - 1;
   if (ptr < nursery_start) {
     minor_gc();
     ptr = nursery_top - size - 1;
   }
+  nursery_top = ptr;
   obj *o = (obj *) ptr;
   o->size = size;
   o->tag = tag;
@@ -40,7 +76,7 @@ void minor_gc(void) {
   if ((size_t) old_top - (size_t) old_start < NURSERY_BYTES)
     return major_gc();
 
-  DEBUG("Minor GC\n");
+  /* DEBUG("Minor GC\n"); */
 
   collect_roots(MINOR);
 
@@ -60,26 +96,35 @@ void minor_gc(void) {
 }
 
 void major_gc(void) {
-  DEBUG("Major GC\n");
+  DEBUG("Major GC: ");
 
+  if (!other_old_start)
+    other_old_start = (word *) malloc(other_old_space_size);
   word *from_space = old_start;
-
-  size_t new_size = 2 * (used_space_prev_gc + NURSERY_BYTES);
-  old_start = (word *) malloc(new_size);
-  old_size_bytes = new_size; // is remembering the size necessary? eh
-  old_top = (word *) ((char *) old_start + new_size);
+  size_t from_space_size = old_space_size;
+  old_start = other_old_start;
+  old_space_size = other_old_space_size;
+  old_top = old_start + old_space_size / sizeof(word);
+  other_old_start = NULL;
 
   collect_roots(MAJOR);
-  
-  // ignore the remembered set
-  remembered_set_size = 0;
-
   process_copy_stack(MAJOR);
 
-  free(from_space);
+  // set a new size for the old space if needed
+  size_t used_space = (size_t) old_start + old_space_size - (size_t) old_top;
+  if (used_space + NURSERY_BYTES > old_space_size)
+    other_old_space_size *= 2;
+
+  if (from_space_size < other_old_space_size)
+    free(from_space);
+  else
+    other_old_start = from_space;
+
+  // reset the nursery and ignore the remembered set
+  remembered_set_size = 0;
   nursery_top = nursery_start + NURSERY_BYTES / sizeof(word);
 
-  used_space_prev_gc = (size_t) old_top - (size_t) old_start;
+  DEBUG("copied %llu bytes\n", used_space);
 }
 
 static void collect_roots(enum gc_type type) {
@@ -94,7 +139,7 @@ static void collect_roots(enum gc_type type) {
 
 static void copy_to_old_space(obj **x, enum gc_type type) {
   obj *o = *x;
-  if (type == MINOR && !IS_YOUNG(x))
+  if (type == MINOR && !IS_YOUNG(o))
     return;
 
   if (o->tag == FORWARD) {
@@ -191,121 +236,6 @@ void force(int argc) {
   default: failwith("unreachable");
   }
 }
-
-// Run self
-void run(int argc) {
-  assert(self->tag == THUNK || self->tag == CLOS);
-  code *pc = (code *) self->args[0];
-  obj *tmp = NULL;
-# define VAR(off) \
-    ((pc[off] == ARG ? data_stack_top : (obj **) self->args + 1)[pc[off+1]])
-  for (;;) switch(*pc) {
-  case ARGC_CHECK:
-    {
-      int params = pc[1];
-      if (argc < params) {
-        // Package it up in a partial application and return
-        obj *pap = alloc(argc + 2, CLOS);
-        pap->args[0] = (word) PAP_ENTRY_CODE;
-        pap->args[1] = (word) self;
-        memcpy(pap->args + 2, data_stack_top, argc * sizeof(obj *));
-        data_stack_top += argc;
-        upd(*data_stack_top++, pap);
-        self = pap;
-        return;
-      }
-      pc += 2;
-      break;
-    }
-  case MKCLOS:
-  case MKTHUNK:
-    {
-      int tag = *pc == MKCLOS ? CLOS : THUNK;
-      int envc = pc[1];
-      obj *o = alloc(envc + 1, tag);
-      memcpy(&o->args[0], pc + 2, sizeof(word)); // memcpy since it's not properly aligned
-      pc += 2 + sizeof(word);
-      // add stuff to the env
-      for (int i = 0; i < envc; i++)
-        o->args[i + 1] = (word) VAR(2 * i);
-      pc += 2 * envc;
-      break;
-    }
-  case MORE_ARGS:
-    {
-      size_t n = pc[1];
-      data_stack_top -= n;
-#     ifndef NDEBUG
-        memset(data_stack_top, 0, n * sizeof(obj *));
-#     endif
-      argc += n;
-      pc += 2;
-      break;
-    }
-  case FEWER_ARGS:
-    {
-      size_t n = pc[1];
-      data_stack_top += n;
-      argc -= n;
-      pc += 2;
-      break;
-    }
-  case MOV:
-    {
-      obj *o = VAR(1);
-      data_stack_top[pc[3]] = o;
-      pc += 4;
-      break;
-    }
-  case READTMP:
-    {
-      int idx = pc[1];
-      tmp = data_stack_top[idx];
-      pc += 2;
-      break;
-    }
-  case WRITETMP:
-    {
-      int idx = pc[1];
-      data_stack_top[idx] = tmp;
-      pc += 2;
-      break;
-    }
-  case BH_SELF:
-    {
-      self->tag = BLACKHOLE;
-      self->size = 1;
-      pc++;
-      break;
-    }
-  case CALL:
-    {
-      self = VAR(1);
-      return force(argc);
-    }
-  case THIS_IS_A_PARTIAL_APPLICATION:
-    {
-      // In compiled code, this won't be compiled into closures, but rather a
-      // built-in function in the runtime
-      assert(self->args[0] == (word) PAP_ENTRY_CODE);
-
-      // Add all the stuff as arguments and jump to the contained closure
-      obj *clos = (obj *) self->args[1];
-      int extra_args = self->size - 2;
-      data_stack_top -= extra_args;
-      memcpy(data_stack_top, self->args + 2, extra_args * sizeof(obj *));
-      self = clos;
-      return run(argc + extra_args);
-    }
-  default:
-    failwith("unreachable");
-  }
-# undef VAR
-}
-
-
-
-
 
 
 
