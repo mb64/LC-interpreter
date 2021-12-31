@@ -1,18 +1,22 @@
+## Runtime
 
 ```c
 typedef size_t word;
 
-typedef obj {
-  void (*entrypoint)();
+typedef struct obj {
+  void (*entrypoint)(void);
   word contents[];
 } obj;
+
+enum gc_tag { REF, FUN, PAP, RIGID, THUNK };
 
 struct gc_data {
   /** Size of the whole object in words.
    * If 0, the first word of contents is a `struct info_word` that contains
    * the true size
    */
-  size_t size; 
+  uint32_t size;
+  /* enum gc_tag */ uint32_t tag;
 };
 
 struct info_word {
@@ -26,11 +30,12 @@ struct info_word {
 Heap object layout:
 
 ```
-    .quadword GC_DATA
+    .dword GC_DATA_SIZE
+    .dword GC_DATA_TAG
 entrypoint:
     x86 code...
 ```
-entrypoint contains the address of executable code for this object
+entrypoint contains executable code for this object
 
 (struct gc_data *) (entrypoint - sizeof(struct gc_data)) contains the GC info
 table for this object
@@ -39,13 +44,71 @@ table for this object
 
 Calling convention/ABI:
 
-rax is the closure being evaluated
 rsp is call stack (obviously)
-rsi is data stack
-rdi is heap pointer
-rdx is heap limit
-rbx and rcx are temporary registers
+rbx is self, the closure being evaluated
+r12 is data stack
+r13 is heap pointer
+r14 is heap limit
+r15 is argc
+rdi, rsi are temporary registers
 
+All of these (except the temp registers) are callee-saved under the SysV ABI, so
+we're OK to call foreign library functions.
+
+When entering a closure:
+ - self points to the closure being evaluated
+ - The data stack contains the (blackholed) thunk to be updated, then argc many
+   arguments
+Operationally, entering `f` pops argc many arguments, evaluates `f args...` to a
+value, then returns that value in `self`
+ → Notably, it's up to the caller to do the thunk update
+
+
+Exposed runtime functions:
+  rt_too_few_args: package up self and the args into a PAP
+  rt_update_thunk: update the top of the data stack to `REF self`
+  rt_avoid_adjacent_update_frames:
+    like rt_update_thunk but also push self to the data stack
+  rt_minor_gc: do GC!
+Built-in entry codes:
+  Partial application, rt_pap_entry
+  Rigid term, rt_rigid_entry
+  (?)
+
+
+
+Compiled entry code actions:
+ 0 (Closures only). Argc check
+    If there are too few arguments, then jump to rt_too_few_args
+ 0 (thunks only). Update frame
+    If argc == 0:
+      call rt_avoid_adjacent_update_frames
+    Else:
+      push self to data stack
+      push argc to call stack
+      call rest_of_code
+      jump to rt_update_thunk
+rest_of_code:
+  1. Heap check (when TOTAL_ALLOC_SIZE != 0)
+    Heap -= TOTAL_ALLOC_SIZE
+    if Heap < Heap limit:
+      call rt_minor_gc
+      Heap -= TOTAL_ALLOC_SIZE
+      (TOTAL_ALLOC_SIZE is less than the nursery, so no need to check again)
+  2. Perform allocations
+    temp = Heap
+    Repeat zero or more times:
+      *temp = entry code
+      (repeated) *(temp+8N) = Nth env item for this allocation
+      push temp to the data stack
+      temp += size of that allocation
+  3. Shuffle the data stack and self
+    Increase data stack size if necessary
+    Perform parallel move using the temp registers
+     → before writing to self, blackhole it if it's a thunk
+    Decrease data stack size if necessary
+    Set new value of argc
+  4. Execute the call! Jump to *self
 
 
 
