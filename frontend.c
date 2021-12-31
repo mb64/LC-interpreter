@@ -1,9 +1,10 @@
 #include "runtime.h"
 #include "frontend.h"
+#include "codegen.h"
 
 /************** IR **************/
 
-static word *ir_arena;
+static word *ir_arena = NULL;
 #define IR_ARENA_SIZE (32 * 1024 * 1024)
 
 static void arena_init(void) {
@@ -243,5 +244,27 @@ static ir parse_exp(char **cursor, size_t lvl, scope s) {
 /************** Compiler *************/
 
 // TODO
+
+struct arg {
+  enum { ARG, ENV, ABSENT } tag;
+  size_t idx;
+};
+struct env {
+  struct env *up;
+  size_t envc;
+  struct arg vars[];
+};
+
+struct comp_result {
+  code *entry;
+  size_t envc;
+  struct arg env[];
+};
+
+static struct arg lookup_var(struct env *env, var v);
+static struct comp_result *codegen(size_t lvl, struct env *env, );
+
+
+
 
 

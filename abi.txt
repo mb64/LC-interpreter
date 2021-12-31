@@ -1,0 +1,52 @@
+
+```c
+typedef size_t word;
+
+typedef obj {
+  void (*entrypoint)();
+  word contents[];
+} obj;
+
+struct gc_data {
+  /** Size of the whole object in words.
+   * If 0, the first word of contents is a `struct info_word` that contains
+   * the true size
+   */
+  size_t size; 
+};
+
+struct info_word {
+  /** Size of the whole object in words */
+  uint32_t size;
+  /** only in heap objects representing rigid terms */
+  uint32_t var;
+};
+```
+
+Heap object layout:
+
+```
+    .quadword GC_DATA
+entrypoint:
+    x86 code...
+```
+entrypoint contains the address of executable code for this object
+
+(struct gc_data *) (entrypoint - sizeof(struct gc_data)) contains the GC info
+table for this object
+
+---
+
+Calling convention/ABI:
+
+rax is the closure being evaluated
+rsp is call stack (obviously)
+rsi is data stack
+rdi is heap pointer
+rdx is heap limit
+rbx and rcx are temporary registers
+
+
+
+
+
