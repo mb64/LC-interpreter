@@ -2,9 +2,9 @@
  *
  * It pre-order serializes the normal form as a malloc'd vector of unsigned
  * ints, with this layout:
- *  nf   ::= LAM nf | NE argc var (argc nf's)
+ *  nf   ::= LAM var nf | NE argc var (argc nf's)
  *  argc ::= an integer number of arguments
- *  var  ::= an integer de Bruijn level
+ *  var  ::= an integer variable id
  *
  */
 

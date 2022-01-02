@@ -37,19 +37,31 @@ void rt_adjacent_update_frames(void) {
 
 /************** Built-in heap objects *************/
 
-// FIXME: they need to have info tables before the executable code
+#define STRINGIFY(x) #x
+#define ENTRY(name, size, tag) \
+  asm (\
+    "  .text\n" \
+    "  .globl " name "\n" \
+    "  .int " STRINGIFY(size) "\n" \
+    "  .int " STRINGIFY(tag) "\n" \
+    name ":\n" \
+    "  jmp " name "_impl\n" \
+  )
 
-void rt_ref_entry(void) {
+ENTRY("rt_ref_entry", 2, REF);
+void rt_ref_entry_impl(void) {
   self = (obj *) self->contents[0];
   // Hope for a tail call :/
   return self->entrypoint();
 }
 
-void rt_forward_entry(void) {
+ENTRY("rt_forward_entry", 2, FORWARD);
+void rt_forward_entry_impl(void) {
   failwith("unreachable: forward objects only exist during GC\n");
 }
 
-void rt_pap_entry(void) {
+ENTRY("rt_pap_entry", 0, PAP);
+void rt_pap_entry_impl(void) {
   // Partial application: push the arguments onto the stack and tail call the
   // contained function
   obj *fun = (obj *) self->contents[1];
@@ -62,7 +74,8 @@ void rt_pap_entry(void) {
   return self->entrypoint();
 }
 
-void rt_rigid_entry(void) {
+ENTRY("rt_rigid_entry", 0, RIGID);
+void rt_rigid_entry_impl(void) {
   // Rigid term: allocate a new rigid term with the new arguments
   if (argc == 0)
     return;
@@ -82,6 +95,7 @@ void rt_rigid_entry(void) {
   self = new;
 }
 
-void rt_blackhole_entry(void) {
+ENTRY("rt_blackhole_entry", 0, BLACKHOLE);
+void rt_blackhole_entry_impl(void) {
   failwith("Black hole (infinite loop?)\n");
 }

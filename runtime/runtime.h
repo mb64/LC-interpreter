@@ -23,7 +23,7 @@ typedef struct obj {
   word contents[];
 } obj;
 
-enum gc_tag { FORWARD, REF, FUN, PAP, RIGID, THUNK };
+enum gc_tag { FORWARD, REF, FUN, PAP, RIGID, THUNK, BLACKHOLE };
 
 struct gc_data {
   /** Size of the whole object in words.
