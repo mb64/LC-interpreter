@@ -1,49 +1,18 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <sys/mman.h>
 #include <stdbool.h>
 #include <string.h>
 #include <assert.h>
 
-/************* Random utils ***********/
+#include "data_layout.h"
 
-typedef size_t word;
-typedef uint32_t halfword;
+/************* Random utils ***********/
 
 #define failwith(...) do { fprintf(stderr, __VA_ARGS__); abort(); } while (0)
 
 // #define DEBUG(...) fprintf(stderr, __VA_ARGS__)
 #define DEBUG(...) ((void) 0)
-
-/************* Object layout ***********/
-
-typedef struct obj {
-  void (*entrypoint)(void);
-  word contents[];
-} obj;
-
-enum gc_tag { FORWARD, REF, FUN, PAP, RIGID, THUNK, BLACKHOLE };
-
-struct gc_data {
-  /** Size of the whole object in words.
-   * If 0, the first word of contents is a `struct info_word` that contains
-   * the true size
-   */
-  uint32_t size;
-  /* enum gc_tag */ uint32_t tag;
-};
-#define GC_DATA(o) \
-  ((struct gc_data *) ((size_t) (o->entrypoint) - sizeof(struct gc_data)))
-
-struct info_word {
-  /** Size of the whole object in words */
-  uint32_t size;
-  /** only in heap objects representing rigid terms */
-  uint32_t var;
-};
-#define INFO_WORD(o) ((struct info_word *) &o->contents[0])
-
 
 /************** Registers **************/
 

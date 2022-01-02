@@ -2,7 +2,7 @@
 
 void gc_init(void);
 
-/** This is only called from C code; generated code hasthese tests inlined */
+// This is only called from C code; generated code has this inlined
 obj *alloc(void (*entrypoint)(void), size_t size);
 
 void minor_gc(void);

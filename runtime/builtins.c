@@ -80,7 +80,11 @@ void rt_rigid_entry_impl(void) {
   if (argc == 0)
     return;
 
-  obj *new = alloc(rt_rigid_entry, INFO_WORD(self)->size + argc);
+  // TODO: make overflow checks more legit (should have a max term size)
+  uint32_t new_size = INFO_WORD(self)->size + argc;
+  if (new_size < argc) failwith("overflow");
+
+  obj *new = alloc(rt_rigid_entry, new_size);
   *INFO_WORD(new) = (struct info_word) {
     .size = INFO_WORD(self)->size,
     .var = INFO_WORD(self)->var,
