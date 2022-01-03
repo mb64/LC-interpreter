@@ -12,7 +12,7 @@ void rt_too_few_args(void) {
   obj *pap = alloc(rt_pap_entry, size);
   *INFO_WORD(pap) = (struct info_word) { .size = size, .var = 0 };
   pap->contents[1] = (word) self;
-  memcpy(&pap->contents[2], data_stack, argc * sizeof(obj *));
+  memcpy(&pap->contents[2], data_stack, sizeof(word[argc]));
   data_stack += argc;
   argc = 0;
   self = pap;
@@ -91,8 +91,8 @@ void rt_rigid_entry_impl(void) {
   };
 
   size_t self_argc = INFO_WORD(self)->size - 2;
-  memcpy(&new->contents[1], &self->contents[1], sizeof(word) * self_argc);
-  memcpy(&new->contents[1 + self_argc], data_stack, sizeof(word) * argc);
+  memcpy(&new->contents[1], &self->contents[1], sizeof(word[self_argc]));
+  memcpy(&new->contents[1 + self_argc], data_stack, sizeof(word[argc]));
   data_stack += argc;
   argc = 0;
 

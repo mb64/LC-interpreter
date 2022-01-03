@@ -48,7 +48,7 @@ void gc_init(void) {
   data_stack = data_stack_end = data_stack_start + DATA_STACK_BYTES / sizeof(obj *);
 }
 
-/** This is only called from C code; generated code hasthese tests inlined */
+// This is only called from C code; generated code has this inlined
 obj *alloc(void (*entrypoint)(void), size_t size) {
   assert(sizeof(word) * size < NURSERY_BYTES);
   /* DEBUG("Allocating %d words\n", size); */
@@ -144,7 +144,7 @@ static obj *copy_to_old_space(obj *o, enum gc_type type) {
     size_t size = GC_DATA(o)->size;
     if (!size) size = INFO_WORD(o)->size;
     obj *new = (obj *) (old_top -= size);
-    memcpy(new, o, size * sizeof(word));
+    memcpy(new, o, sizeof(word[size]));
 
     // set up forwarding
     o->entrypoint = rt_forward_entry;
