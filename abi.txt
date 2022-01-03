@@ -87,7 +87,9 @@ Compiled entry code actions:
       push self to data stack
       push argc to call stack
       call rest_of_code
-      jump to rt_update_thunk
+      pop argc
+      call rt_update_thunk
+      FIXME (call self->entrypoint?)
 rest_of_code:
   1. Heap check (when TOTAL_ALLOC_SIZE != 0)
     Heap -= TOTAL_ALLOC_SIZE
