@@ -141,8 +141,7 @@ static void load_env_item(enum reg reg, size_t idx);
 static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct compile_result locals[n]);
 static void heap_check(size_t bytes_allocd);
 
-
-
+static struct comp_result *codegen(size_t lvl, struct env *up, ir *ir);
 
 
 

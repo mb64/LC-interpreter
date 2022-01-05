@@ -466,13 +466,97 @@ static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct co
   }
 }
 
+enum mov_state { NOT_DONE, IN_PROGRESS, DONE };
+
+struct mov_item {
+  enum { READ_ARG, READ_ENV, WRITE_ARG, WRITE_SELF } action;
+  enum reg reg;
+  int idx;
+  struct mov_item *next;
+};
+
+typedef struct {
+  struct mov_item *start;
+  struct mov_item *end;
+} mov_seg;
+
+mov_seg singleton_mov_seg(int action, enum reg reg, int idx) {
+  struct mov_item *ptr = (struct mov_item *) malloc(sizeof(struct mov_item));
+  *ptr = (struct mov_item) {
+    .action = action, .reg = reg, .idx = idx, .next = NULL };
+  return (mov_seg) { .start = ptr, .end = ptr };
+}
+
+mov_seg append_mov_segs(mov_seg s1, mov_seg s2) {
+  if (!s1.start)
+    return s2;
+  if (!s2.start)
+    return s1;
+  s1.end->next = s2.start;
+  return (mov_seg) { .start = s1.start, .end = s2.end };
+}
+
+struct dest_info_item {
+  enum { FROM_ARGS, FROM_ENV } src_type;
+  int src_idx;
+  int next_with_same_src; // -1 if none
+  enum mov_state state;
+};
+
+// Returns either:
+//  -1 if all went well
+//  N if item N from the source is now in rdi
+static int mov_one(
+    size_t n,
+    struct dest_info_item dest_info[n + 1],
+    int src_to_dest[n + 1],
+    int src,
+    mov_seg *out) {
+
+  *out = (mov_seg) { .start = NULL, .end = NULL };
+
+  bool had_cycle_yet = false;
+  bool in_rdi = false;
+
+
+  for (int dest = src_to_dest[src]; dest != -1; dest = dest_info[dest].next_with_same_src) {
+    // TODO:
+    switch (dest_info[dest].state) {
+      case ...:
+    }
+    mov_seg tmp;
+    int item = mov_one(n, dest_info, src_to_dest, dest, &tmp);
+    if (item != -1) {
+      assert(!had_cycle_yet);
+      had_cycle_yet = true;
+      in_rdi = item == src;
+      *out = append_mov_segs(*out, tmp);
+    } else {
+      *out = append_mov_segs(tmp, *out);
+    }
+  }
+
+  if (src == n)
+    do something special? since src == n is 'self'
+    can src == n && in_rdi happen?
+      means a cycle like arg0 -> self, env.y -> arg0
+      handled in some particular way
+      I think it can happen
+      just means that env.y is in rdi
+  if (in_rdi) {
+    mov_seg store = singleton_mov_seg
+    *out = append_mov_segs(*out, singleton_mov_seg())
+  }
+  failwith("TODO");
+}
+
 // TODO:
 //
-//  - Fix the thunk entry code
-//  - Implement parallel move for shuffling args
-//  - Tie it all together in a big codegen function
-//  - *Really* tie everything together in a function which parses and codegens
-//  - **Really** really tie everything together with a main function!
+//  - [ ] Fix the thunk entry code
+//  - [ ] Implement parallel move for shuffling args
+//  - [ ] Tie it all together in a big codegen function
+//  - [ ] *Really* tie everything together in a function which parses and codegens
+//  - [ ] **Really** really tie everything together with a main function!
 
 /* static struct comp_result *codegen(size_t lvl, struct env *up, ir *ir); */
 
