@@ -87,8 +87,14 @@ struct env {
 };
 
 struct compile_result {
-  void *code;
-  struct env *env;
+  bool is_var;
+  union {
+    var var;
+    struct {
+      void *code;
+      struct env *env;
+    };
+  };
 };
 
 static void make_sure_can_access_var(struct env *env, var v);
@@ -184,8 +190,9 @@ static void store_arg(size_t idx, enum reg reg) {
 }
 
 static void blackhole_self(void) {
-  // TODO: store to *self 'rt_blackhole_entry'
-  // then store to *(self + 8) (struct info_word) { ... }
+  // TODO: comple:
+  //  *self = rt_blackhole_entry;
+  //  *(self + 8) = (struct info_word) { ... };
   failwith("TODO");
 }
 
@@ -293,44 +300,61 @@ static void heap_check(size_t bytes_allocated) {
   // alloc_was_good:
 }
 
+static void load_var(size_t lvl, struct env *this_env, enum reg dest, var v) {
+  assert(v < lvl);
+  if (v >= this_env->args_start) {
+    load_arg(dest, lvl - v);
+  } else {
+    assert(this_env->upvals[v].is_used);
+    load_env_item(dest, SELF, this_env->upvals[v].env_idx);
+  }
+}
+
 static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct compile_result locals[n]) {
   size_t words_allocated = 0;
   for (size_t i = 0; i < n; i++)
-    words_allocated += locals[i].env->envc + 1;
+    if (!locals[i].is_var)
+      words_allocated += locals[i].env->envc + 1;
 
   heap_check(8 * words_allocated);
 
   MOV_RR(RDI, HEAP_PTR);
   for (size_t i = 0; i < n; i++) {
+    lvl++;
     add_imm(DATA_STACK, -8);
-    STORE(RDI, DATA_STACK, 0);
-    lvl--;
 
-    // movabs rsi, entrypoint
-    CODE(0x48, 0xbe, U64((uint64_t) locals[i].code));
-    STORE(RSI, RDI, 0);
+    if (locals[i].is_var) {
+      // A variable: don't actually allocate, just store it to the stack
+      var v = locals[i].var;
+      load_var(lvl, this_env, RSI, v);
+      STORE(RSI, DATA_STACK, 0);
+    } else {
+      // An actual allocation
+      STORE(RDI, DATA_STACK, 0);
 
-    struct env *env = locals[i].env;
-    assert(env->up == this_env);
-    size_t count = 0;
-    for (var v = 0; v < env->args_start; v++) {
-      if (env->upvals[v].is_used) {
+      // Store the entrypoint
+      // movabs rsi, entrypoint
+      CODE(0x48, 0xbe, U64((uint64_t) locals[i].code));
+      STORE(RSI, RDI, 0);
+
+      // Store the contents
+      struct env *env = locals[i].env;
+      assert(env->up == this_env);
+      size_t count = 0;
+      for (var v = 0; v < env->args_start; v++) {
+        if (!env->upvals[v].is_used)
+          continue;
         count++;
-        if (v >= this_env->args_start) {
-          load_arg(RSI, lvl - v);
-        } else {
-          assert(this_env->upvals[v].is_used);
-          load_env_item(RSI, SELF, this_env->upvals[v].env_idx);
-        }
+        load_var(lvl, this_env, RSI, v);
         size_t offset = 8 + 8*env->upvals[v].env_idx;
         STORE(RSI, RDI, offset);
-        break;
       }
-    }
-    assert(count == env->envc);
+      assert(count == env->envc);
 
-    if (i != n-1)
-      add_imm(RDI, 8 + 8*env->envc);
+      // Bump rdi, used as a temporary heap pointer
+      if (i != n-1)
+        add_imm(RDI, 8 + 8*env->envc);
+    }
   }
 }
 
@@ -354,6 +378,7 @@ typedef struct {
   struct dest_info_item *dest_info; // n + 1 of them
   int *src_to_dest; // n + 1 of them
   int in_rdi;
+  bool for_a_thunk;
 } mov_state;
 
 // Store src to all its destinations, so that it can be overwritten afterwards.
@@ -386,7 +411,13 @@ static int vacate_one(mov_state *s, int src) {
 
         enum reg self = s->in_rdi == s->n ? RDI : SELF;
         if (dest == s->n) {
-          load_env_item(SELF, self, s->dest_info[dest].src_idx);
+          if (s->for_a_thunk) {
+            load_env_item(RDI, self, s->dest_info[dest].src_idx);
+            blackhole_self();
+            MOV_RR(SELF, RDI);
+          } else {
+            load_env_item(SELF, self, s->dest_info[dest].src_idx);
+          }
         } else {
           load_env_item(RSI, self, s->dest_info[dest].src_idx);
           store_arg(dest, RSI);
@@ -407,10 +438,13 @@ static int vacate_one(mov_state *s, int src) {
         src_reg = RSI;
       }
       FOREACH_DEST(dest) {
-        if (dest == s->n)
+        if (dest == s->n) {
+          if (s->for_a_thunk)
+            blackhole_self();
           MOV_RR(SELF, src_reg);
-        else
+        } else {
           store_arg(dest, src_reg);
+        }
       }
     }
     if (s->in_rdi == src)
@@ -432,7 +466,8 @@ static void add_dest_to_mov_state(size_t lvl, struct env *env, mov_state *s, int
       .next_with_same_src = s->src_to_dest[src],
       .status = NOT_STARTED
     };
-    s->src_to_dest[src] = dest;
+    if (dest != src)
+      s->src_to_dest[src] = dest;
   } else {
     // It's from the env
     make_sure_can_access_var(env, v);
@@ -473,6 +508,7 @@ static void do_the_moves(size_t lvl, ir term, struct env *env) {
     .dest_info = malloc(sizeof(struct dest_info_item[n+1])),
     .src_to_dest = malloc(sizeof(int[n+1])),
     .in_rdi = -1,
+    .for_a_thunk = term->arity == 0,
   };
 
   for (int i = 0; i < n + 1; i++)
@@ -481,12 +517,17 @@ static void do_the_moves(size_t lvl, ir term, struct env *env) {
   int dest = 0;
   for (arglist arg = term->args; arg; dest++, arg = arg->prev)
     add_dest_to_mov_state(lvl, env, &s, dest, arg->arg);
-  assert(dest == n);
+  assert(dest == outgoing_argc);
+  for (; dest < n; dest++) {
+    s.dest_info[dest].status = NOT_STARTED;
+  }
   add_dest_to_mov_state(lvl, env, &s, n, term->head);
 
   // Do all the moving
-  for (int i = 0; i < n + 1; i++)
+  for (int i = 0; i < n + 1; i++) {
     vacate_one(&s, i);
+    assert(s.in_rdi == -1);
+  }
 
   // Resize the data stack and set argc
   if (outgoing_argc < incoming_argc) {
@@ -522,10 +563,12 @@ void *compile_toplevel(ir term) {
 
 // TODO:
 //
+//  - [ ] Fix lowering to IR -- it does wrong things
 //  - [ ] Fix the thunk entry code
 //  - [X] Implement parallel move for shuffling args
 //  - [ ] Tie it all together in a big compile function
 //  - [ ] *Really* tie everything together with a main function!
+//
 
 
 

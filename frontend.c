@@ -66,13 +66,22 @@ static ir mkabs(size_t lvl, ir body) {
 
 static ir mkapp(size_t lvl, ir func, ir arg) {
   if (is_lambda(func)) {
-    // Applying a lambda: (λx. body) arg  ⇒  let x = arg in body
-    func->arity--;
-    func->lets = cons_let(arg, func->lets);
-    func->lets_len++;
-    if (!func->lets_end)
-      func->lets_end = &func->lets->next;
-    return func;
+    // Applying a lambda
+    if (func->arity == 1) {
+      //  (λx. body) arg  ⇒  let x = arg in body
+      func->arity = 0;
+      func->lets = cons_let(arg, func->lets);
+      func->lets_len++;
+      if (!func->lets_end)
+        func->lets_end = &func->lets->next;
+      return func;
+    } else {
+      //  (λx y. body) arg  ⇒  let x = arg ; res = λy. body in res
+      // x is lvl, res is lvl+1
+      func->arity--;
+      ir result = mkvar(lvl+1);
+      failwith("TODO");
+    }
   } else if (is_var(arg)) {
     // Applying a thunk to a var:
     //  (let ... in f args) x  ⇒  let ... in f args x
@@ -82,6 +91,7 @@ static ir mkapp(size_t lvl, ir func, ir arg) {
   } else {
     // Appying a thunk to something complex:
     //  (let ... in f args) arg ⇒ let ... in let x = arg in f args x
+    failwith("FIXME level shifting");
     var new_var = lvl + func->lets_len;
 
     // add the let
