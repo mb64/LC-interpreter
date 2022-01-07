@@ -246,23 +246,24 @@ static void *start_thunk(size_t envc) {
   CODE(
     // test argc,argc (argc is %r15)
     0x4d, 0x85, 0xff,
-    // jz adjacent_updates (+29)
-    0x74, 29,
+    // jz adjacent_updates (+31)
+    0x74, 31,
     // sub data_stack, $8 (data_stack is %r12)
     0x49, 0x83, 0xec, 0x08,
     // mov [data_stack], self (self is rbx)
     0x49, 0x89, 0x1c, 0x24,
     // push argc (argc is r15)
     0x41, 0x57,
-    // call rest_of_code (+26)
-    0xe8, U32(26),
+    // call rest_of_code (+28)
+    0xe8, U32(28),
     // pop argc (argc is %r15)
     0x41, 0x5f,
     // movabs rdi, rt_update_thunk
     0x48, 0xbf, U64((size_t) rt_update_thunk),
-    // jmp rdi
-    0xff, 0xe7,
-    // FIXME wrong codegen
+    // call rdi
+    0xff, 0xd7,
+    // jmp [qword ptr [self]] (self is rbx)
+    0xff, 0x23,
     // adjacent_updates:
     // movabs rdi, rt_avoid_adjacent_update_frames
     0x48, 0xbf, U64((size_t) rt_adjacent_update_frames),
@@ -282,7 +283,7 @@ static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct co
 
 static void heap_check(size_t bytes_allocated) {
   // TODO: better maximum allocation size control
-  assert(bytes_allocated < 1024 * 1024);
+  assert(bytes_allocated < 131072);
 
   add_imm(HEAP_PTR, - (int32_t) bytes_allocated);
   CODE(
@@ -564,7 +565,7 @@ void *compile_toplevel(ir term) {
 // TODO:
 //
 //  - [ ] Fix lowering to IR -- it does wrong things
-//  - [ ] Fix the thunk entry code
+//  - [X] Fix the thunk entry code
 //  - [X] Implement parallel move for shuffling args
 //  - [ ] Tie it all together in a big compile function
 //  - [ ] *Really* tie everything together with a main function!
