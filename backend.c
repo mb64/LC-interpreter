@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <assert.h>
+#include <sys/mman.h>
+#include <errno.h>
 
 
 /************** General utils *************/
@@ -96,13 +98,23 @@ static void make_sure_can_access_var(struct env *env, var v);
 
 
 static void init_code_buf(void) {
+  if (code_buf)
+    return;
+
   // Need to mmap it so that I can mprotect it later.
-  failwith("TODO");
+  size_t len = 8 * 1024 * 1024;
+  code_buf = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (!code_buf)
+    failwith("Couldn't allocate buffer for code");
+  code_buf_start = code_buf;
+  code_buf_end = code_buf_start + len;
 }
 
 void compile_finalize(void) {
   // mprotect it
-  failwith("TODO");
+  size_t len = code_buf_end - code_buf_start;
+  if (!mprotect(code_buf_start, len, PROT_READ | PROT_EXEC))
+    failwith("Couldn't map as executable: %s", strerror(errno));
 }
 
 static void write_code(size_t len, const uint8_t code[len]) {
@@ -379,7 +391,7 @@ typedef struct {
 } mov_state;
 
 // Store src to all its destinations, so that it can be overwritten afterwards.
-static int vacate_one(mov_state *s, int src) {
+static void vacate_one(mov_state *s, int src) {
   switch (s->dest_info[src].status) {
   case DONE:
     break;
@@ -575,7 +587,6 @@ static struct compile_result compile(struct env *up, ir term) {
   assert(i == term->lets_len);
 
   // Prologue
-  bool is_a_closure = term->arity > 0;
   void *code_start;
   if (term->arity == 0)
     code_start = start_thunk(env->envc);
@@ -605,6 +616,7 @@ static struct compile_result compile(struct env *up, ir term) {
 }
 
 void *compile_toplevel(ir term) {
+  init_code_buf();
   assert(term->lvl == 0);
   struct compile_result res = compile(NULL, term);
   assert(res.env->envc == 0);
@@ -615,7 +627,7 @@ void *compile_toplevel(ir term) {
 
 // TODO:
 //
-//  - [ ] Implement mmap and mprotect stuff
+//  - [X] Implement mmap and mprotect stuff
 //  - [X] Fix lowering to IR -- it does wrong things
 //  - [X] Fix the thunk entry code
 //  - [X] Implement parallel move for shuffling args

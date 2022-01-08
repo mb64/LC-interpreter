@@ -33,6 +33,11 @@ static void arena_init(void) {
   }
 }
 
+void free_ir(void) {
+  free(ir_arena);
+  ir_arena = ir_arena_end = NULL;
+}
+
 #define ARENA_ALLOC(ty, ...) \
   ty *node = (ty *) ir_arena; \
   ir_arena += sizeof(ty) / sizeof(*ir_arena); \
@@ -60,6 +65,7 @@ static bool is_lambda(ir e) {
 }
 
 static ir mkabs(size_t lvl, ir body) {
+  (void) lvl;
   body->arity++;
   return body;
 }
@@ -110,23 +116,23 @@ typedef struct a_scope_item {
   struct a_scope_item *next;
 } *scope;
 
-static bool skip_whitespace(char **cursor);
+static bool skip_whitespace(const char **cursor);
 #define SKIP_WHITESPACE(cursor) \
   if (!skip_whitespace(cursor)) return 0
 
-static size_t parse_ident(char **cursor);
-static ir parse_var(char **cursor, size_t lvl, scope s);
-static ir parse_exp(char **cursor, size_t lvl, scope s);
-static ir parse_atomic_exp(char **cursor, size_t lvl, scope s);
-static ir then_parse_some_args(char **cursor, size_t lvl, scope s, ir func);
-static ir parse_rest_of_lambda(char **cursor, size_t lvl, scope s);
+static size_t parse_ident(const char **cursor);
+static ir parse_var(const char **cursor, size_t lvl, scope s);
+static ir parse_exp(const char **cursor, size_t lvl, scope s);
+static ir parse_atomic_exp(const char **cursor, size_t lvl, scope s);
+static ir parse_rest_of_lambda(const char **cursor, size_t lvl, scope s);
 
 static const char *err_msg = NULL;
 static const char *err_loc = NULL;
 
 
-ir parse(char *text) {
-  char *cursor = text;
+ir parse(const char *text) {
+  arena_init();
+  const char *cursor = text;
   skip_whitespace(&cursor);
   ir result = parse_exp(&cursor, 0, NULL);
   if (result && *cursor != '\0') {
@@ -137,13 +143,13 @@ ir parse(char *text) {
 
   if (!result)
     // TODO: better error message printing
-    printf("parse error at byte %d :/\n%s\n", err_loc - text, err_msg);
+    printf("parse error at byte %ld :/\n%s\n", err_loc - text, err_msg);
 
   return result;
 }
 
-static bool skip_whitespace(char **cursor) {
-  char *text = *cursor;
+static bool skip_whitespace(const char **cursor) {
+  const char *text = *cursor;
   // comments use /- -/
   for (;;) switch (text[0]) {
     case ' ':
@@ -174,10 +180,10 @@ static bool skip_whitespace(char **cursor) {
 }
 
 // returns the length of the ident starting at *cursor
-static size_t parse_ident(char **cursor) {
+static size_t parse_ident(const char **cursor) {
   // parse [a-zA-Z_]+
-  char *start = *cursor;
-  char *end = start;
+  const char *start = *cursor;
+  const char *end = start;
 #define IDENT_CHAR(c) ('A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || c == '_')
   while (IDENT_CHAR(*end))
     end++;
@@ -191,8 +197,8 @@ static size_t parse_ident(char **cursor) {
   return end - start;
 }
 
-static ir parse_var(char **cursor, size_t lvl, scope s) {
-  char *start = *cursor;
+static ir parse_var(const char **cursor, size_t lvl, scope s) {
+  const char *start = *cursor;
   size_t len = parse_ident(cursor);
   if (!len) return NULL;
 
@@ -212,7 +218,7 @@ static ir parse_var(char **cursor, size_t lvl, scope s) {
 }
 
 // atomic_exp ::= var | '(' exp ')'
-static ir parse_atomic_exp(char **cursor, size_t lvl, scope s) {
+static ir parse_atomic_exp(const char **cursor, size_t lvl, scope s) {
   if (**cursor == '(') {
     ++*cursor;
     SKIP_WHITESPACE(cursor);
@@ -230,17 +236,8 @@ static ir parse_atomic_exp(char **cursor, size_t lvl, scope s) {
   return parse_var(cursor, lvl, s);
 }
 
-// args ::= atomic_exp*
-static ir then_parse_some_args(char **cursor, size_t lvl, scope s, ir func) {
-  while (**cursor != ')') {
-    ir arg = parse_atomic_exp(cursor, lvl, s);
-    func = mkapp(lvl, func, arg);
-  }
-  return func;
-}
-
 // rest_of_lambda ::= var* '.' exp
-static ir parse_rest_of_lambda(char **cursor, size_t lvl, scope s) {
+static ir parse_rest_of_lambda(const char **cursor, size_t lvl, scope s) {
   if (!**cursor) {
     err_loc = *cursor;
     err_msg = "expected '.', got end of file";
@@ -251,7 +248,7 @@ static ir parse_rest_of_lambda(char **cursor, size_t lvl, scope s) {
     SKIP_WHITESPACE(cursor);
     return parse_exp(cursor, lvl, s);
   } else {
-    char *name = *cursor;
+    const char *name = *cursor;
     size_t name_len = parse_ident(cursor);
     if (!name_len) return NULL;
     struct a_scope_item extended = { name, name_len, s };
@@ -262,7 +259,7 @@ static ir parse_rest_of_lambda(char **cursor, size_t lvl, scope s) {
 }
 
 // exp ::= '\' rest_of_lambda | 'λ' rest_of_lambda | atomic_exp atomic_exp*
-static ir parse_exp(char **cursor, size_t lvl, scope s) {
+static ir parse_exp(const char **cursor, size_t lvl, scope s) {
   if (**cursor == '\\') {
     ++*cursor;
     SKIP_WHITESPACE(cursor);
@@ -274,6 +271,7 @@ static ir parse_exp(char **cursor, size_t lvl, scope s) {
   } else {
     ir func = parse_atomic_exp(cursor, lvl, s);
     if (!func) return NULL;
+    // Then parse some args
     while (**cursor && **cursor != ')') {
       ir arg = parse_atomic_exp(cursor, lvl, s);
       if (!arg) return NULL;

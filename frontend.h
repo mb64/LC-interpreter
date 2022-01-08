@@ -1,3 +1,6 @@
+#ifndef FRONTEND_H
+#define FRONTEND_H 1
+
 #include <stddef.h>
 
 typedef size_t var;
@@ -28,7 +31,7 @@ typedef struct exp {
  *
  * Does not free the text
  */
-ir parse(char *text);
+ir parse(const char *text);
 
 /** All IR is allocated from an arena.
  *
@@ -36,3 +39,4 @@ ir parse(char *text);
  */
 void free_ir(void);
 
+#endif // FRONTEND_H

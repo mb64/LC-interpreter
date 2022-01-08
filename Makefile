@@ -1,7 +1,7 @@
 CFLAGS = -Wall -Wextra -O -g
 
 RT_OBJS = build/gc.o build/builtins.o build/normalize.o
-OBJS = FIXME
+OBJS = build/frontend.o build/backend.o build/main.o
 
 lc: $(RT_OBJS) $(OBJS)
 	gcc -o $@ $^
