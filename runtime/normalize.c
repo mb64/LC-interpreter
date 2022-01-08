@@ -17,6 +17,11 @@ static void push_buf(unsigned int x) {
 // Pop an object from the data stack and write its normal form to the buffer
 static void quote(void);
 
+// Apply 'self' to an argument, returning the value in 'self'
+static void apply(obj *arg);
+// Evaluate 'self', returning the value in 'self'
+static void eval(void);
+
 struct saved_regs {
   obj *self;
   obj **data_stack;
@@ -33,15 +38,15 @@ static void restore_regs(struct saved_regs);
 unsigned int *normalize(void (*entrypoint)(void)) {
   struct saved_regs regs = save_regs();
   gc_init();
-  buf_len = buf_cap = 0;
-  buf = malloc(4 * sizeof(int));
+  buf_len = 0;
+  buf_cap = 16;
+  buf = malloc(sizeof(unsigned int[buf_cap]));
 
   obj *main = alloc(entrypoint, 2);
   *INFO_WORD(main) = (struct info_word) { .size = 2, .var = 0 };
-  *data_stack-- = main;
   self = main;
-  main->entrypoint();
-  rt_update_thunk();
+  eval();
+
   quote();
 
   restore_regs(regs);
@@ -67,13 +72,26 @@ static void restore_regs(struct saved_regs regs) {
 
 // Apply 'self' to an argument, returning the value in 'self'
 static void apply(obj *arg) {
+  printf("Applying %p to %p! Data stack is %p\n", self, arg, data_stack);
   obj *blackhole_to_update = alloc(rt_blackhole_entry, 2);
   *INFO_WORD(blackhole_to_update) = (struct info_word) { .size = 2, .var = 0 };
-  *data_stack-- = blackhole_to_update;
-  *data_stack-- = arg;
+  *--data_stack = blackhole_to_update;
+  *--data_stack = arg;
   argc = 1;
   self->entrypoint();
   rt_update_thunk();
+  printf("Done applying %p! Data stack is %p\n", self, data_stack); // FIXME
+}
+// Evaluate 'self', returning the value in 'self'
+static void eval(void) {
+  printf("Evaling %p! Data stack is %p\n", self, data_stack);
+  obj *blackhole_to_update = alloc(rt_blackhole_entry, 2);
+  *INFO_WORD(blackhole_to_update) = (struct info_word) { .size = 2, .var = 0 };
+  *--data_stack = blackhole_to_update;
+  argc = 0;
+  self->entrypoint();
+  rt_update_thunk();
+  printf("Done evaling %p! Data stack is %p\n", self, data_stack); // FIXME
 }
 
 // Write the normal form of 'self' (a value) to the buffer
@@ -111,9 +129,8 @@ static void quote(void) {
         // Pop and evaluate the next item off the stack
         if (data_stack == data_stack_end)
           return;
-        self = *data_stack;
-        self->entrypoint();
-        rt_update_thunk();
+        self = *data_stack++;
+        eval();
         continue;
       }
     default:
@@ -128,6 +145,7 @@ static unsigned int *print_rest_of_lam(unsigned int *nf);
 
 void print_normal_form(unsigned int *nf) {
   print(nf, false);
+  printf("\n");
 }
 
 static void print_var(unsigned int var) {

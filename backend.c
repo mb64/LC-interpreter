@@ -105,7 +105,7 @@ static void init_code_buf(void) {
   size_t len = 8 * 1024 * 1024;
   code_buf = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (!code_buf)
-    failwith("Couldn't allocate buffer for code");
+    failwith("Couldn't allocate buffer for code\n");
   code_buf_start = code_buf;
   code_buf_end = code_buf_start + len;
 }
@@ -113,8 +113,8 @@ static void init_code_buf(void) {
 void compile_finalize(void) {
   // mprotect it
   size_t len = code_buf_end - code_buf_start;
-  if (!mprotect(code_buf_start, len, PROT_READ | PROT_EXEC))
-    failwith("Couldn't map as executable: %s", strerror(errno));
+  if (mprotect(code_buf_start, len, PROT_READ | PROT_EXEC))
+    failwith("Couldn't map as executable: %s\n", strerror(errno));
 }
 
 static void write_code(size_t len, const uint8_t code[len]) {
@@ -197,11 +197,13 @@ static void store_arg(size_t idx, enum reg reg) {
 }
 
 static void blackhole_self(void) {
-  // movabs rsi, rt_blackhole_entry
-  CODE(0x48, 0xbf, U64((uint64_t) rt_blackhole_entry));
-  STORE(RSI, SELF, 0);
-  CODE(0xbe, U32(2)); // mov esi, 2
-  STORE(RSI, SELF, 8);
+  // Use rax as a temporary register since it's possible that both rsi and rdi
+  // are in use
+  // movabs rax, rt_blackhole_entry
+  CODE(0x48, 0xb8, U64((uint64_t) rt_blackhole_entry));
+  STORE(RAX, SELF, 0);
+  CODE(0xb8, U32(2)); // mov esi, 2
+  STORE(RAX, SELF, 8);
 }
 
 
@@ -224,15 +226,16 @@ static void write_header(uint32_t size, uint32_t tag) {
 }
 
 static void *start_closure(size_t argc, size_t envc) {
-  assert(argc < INT_MAX);
+  /* assert(argc < INT_MAX); */
+  assert(argc < 127); // TODO: allow more args (? maybe)
   assert(envc < INT_MAX);
 
   write_header(envc == 0 ? 0 : envc + 1, FUN);
   void *code_start = code_buf;
 
   CODE(
-    // cmp %r15, argc
-    0x4c, 0x39, 0x3c, 0x25, U32(argc),
+    // cmp r15, argc
+    0x49, 0x83, 0xff, (uint8_t) argc,
     // jge rest_of_code (+12)
     0x7d, 12,
     // movabs rt_too_few_args, %rdi
@@ -312,7 +315,7 @@ static void heap_check(size_t bytes_allocated) {
 static void load_var(size_t lvl, struct env *this_env, enum reg dest, var v) {
   assert(v < lvl);
   if (v >= this_env->args_start) {
-    load_arg(dest, lvl - v);
+    load_arg(dest, lvl - v - 1);
   } else {
     assert(this_env->upvals[v].is_used);
     load_env_item(dest, SELF, this_env->upvals[v].env_idx);
@@ -320,6 +323,9 @@ static void load_var(size_t lvl, struct env *this_env, enum reg dest, var v) {
 }
 
 static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct compile_result locals[n]) {
+  if (n == 0)
+    return;
+
   size_t words_allocated = 0;
   for (size_t i = 0; i < n; i++) {
     if (locals[i].env->envc == 0)
@@ -392,11 +398,15 @@ typedef struct {
 
 // Store src to all its destinations, so that it can be overwritten afterwards.
 static void vacate_one(mov_state *s, int src) {
+  printf("Vacating %d\n"); // FIXME
+
   switch (s->dest_info[src].status) {
   case DONE:
+    printf("It was done\n"); // FIXME
     break;
 
   case IN_PROGRESS:
+    printf("A Cycle!\n"); // FIXME
     // A cycle! Use rdi as a temporary register to break the cycle
     assert(s->in_rdi == -1);
     s->in_rdi = src;
@@ -407,6 +417,14 @@ static void vacate_one(mov_state *s, int src) {
     break;
 
   case NOT_STARTED:
+    printf("Not started\n"); // FIXME
+    if (s->src_to_dest[src] == -1) {
+      printf("Didn't do anything\n"); // FIXME
+      // Don't do anything if it has no destinations
+      s->dest_info[src].status = DONE;
+      break;
+    }
+
 #   define FOREACH_DEST(dest) \
       for (int dest = s->src_to_dest[src]; dest != -1; dest = s->dest_info[dest].next_with_same_src)
 
@@ -421,9 +439,9 @@ static void vacate_one(mov_state *s, int src) {
         enum reg self = s->in_rdi == s->n ? RDI : SELF;
         if (dest == s->n) {
           if (s->for_a_thunk) {
-            load_env_item(RDI, self, s->dest_info[dest].src_idx);
+            load_env_item(RSI, self, s->dest_info[dest].src_idx);
             blackhole_self();
-            MOV_RR(SELF, RDI);
+            MOV_RR(SELF, RSI);
           } else {
             load_env_item(SELF, self, s->dest_info[dest].src_idx);
           }
@@ -437,7 +455,7 @@ static void vacate_one(mov_state *s, int src) {
       FOREACH_DEST(dest) {
         assert(s->dest_info[dest].src_type == FROM_ARGS);
         assert(s->dest_info[dest].src_idx == src);
-        vacate_one(s, src);
+        vacate_one(s, dest);
       }
       enum reg src_reg;
       if (s->in_rdi == src) {
@@ -459,6 +477,7 @@ static void vacate_one(mov_state *s, int src) {
     if (s->in_rdi == src)
       s->in_rdi = -1;
     s->dest_info[src].status = DONE;
+    printf("Done with %d!\n", src); // FIXME
 #   undef FOREACH_DEST
     break;
   }
@@ -468,7 +487,7 @@ static void add_dest_to_mov_state(size_t lvl, struct env *env, mov_state *s, int
   assert(v <= lvl);
   if (v >= env->args_start) {
     // It's from the data stack
-    int src = lvl - v;
+    int src = lvl - v - 1;
     s->dest_info[dest] = (struct dest_info_item) {
       .src_type = FROM_ARGS,
       .src_idx = src,
@@ -491,6 +510,10 @@ static void add_dest_to_mov_state(size_t lvl, struct env *env, mov_state *s, int
 }
 
 static void do_the_moves(size_t lvl, ir term, struct env *env) {
+  //FIXME
+  printf("Moving for ");
+  print_ir(term);
+
   assert(lvl == term->lvl + term->arity + term->lets_len);
   assert(term->lvl == env->args_start);
 
@@ -498,6 +521,7 @@ static void do_the_moves(size_t lvl, ir term, struct env *env) {
   size_t outgoing_argc = 0;
   for (arglist arg = term->args; arg; arg = arg->prev)
     ++outgoing_argc;
+  printf("Outgoing argc is %d, incoming %d\n", outgoing_argc, incoming_argc);
 
 
   // Resize the data stack
@@ -524,14 +548,20 @@ static void do_the_moves(size_t lvl, ir term, struct env *env) {
   for (int i = 0; i < n + 1; i++)
     s.src_to_dest[i] = -1;
 
+  int dest_start =
+    outgoing_argc < incoming_argc ? incoming_argc - outgoing_argc : 0;
   int dest = 0;
+  for (; dest < dest_start; dest++)
+    s.dest_info[dest].status = NOT_STARTED;
   for (arglist arg = term->args; arg; dest++, arg = arg->prev)
     add_dest_to_mov_state(lvl, env, &s, dest, arg->arg);
-  assert(dest == outgoing_argc);
-  for (; dest < n; dest++) {
-    s.dest_info[dest].status = NOT_STARTED;
-  }
+  assert(dest == n);
   add_dest_to_mov_state(lvl, env, &s, n, term->head);
+
+  // FIXME
+  for (int i = 0; i < n + 1; i++)
+    printf("%d->%d ", i, s.src_to_dest[i]);
+  printf("\n");
 
   // Do all the moving
   for (int i = 0; i < n + 1; i++) {
@@ -632,7 +662,7 @@ void *compile_toplevel(ir term) {
 //  - [X] Fix the thunk entry code
 //  - [X] Implement parallel move for shuffling args
 //  - [X] Tie it all together in a big compile function
-//  - [ ] *Really* tie everything together with a main function!
+//  - [X] *Really* tie everything together with a main function!
 //  - [ ] Fix all the (I'm sure many) mistakes
 //
 

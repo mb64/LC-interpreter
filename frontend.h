@@ -39,4 +39,8 @@ ir parse(const char *text);
  */
 void free_ir(void);
 
+/** For debugging purposes
+ */
+void print_ir(ir term);
+
 #endif // FRONTEND_H

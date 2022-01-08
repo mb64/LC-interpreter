@@ -22,19 +22,20 @@ static ir mkvar(size_t lvl, var v);
 static ir mkapp(size_t lvl, ir func, ir arg);
 static ir mkabs(size_t lvl, ir body);
 
+static size_t *ir_arena_start = NULL;
 static size_t *ir_arena = NULL;
 static size_t *ir_arena_end = NULL;
 #define IR_ARENA_SIZE (32 * 1024 * 1024)
 
 static void arena_init(void) {
   if (!ir_arena) {
-    ir_arena = (size_t *) malloc(IR_ARENA_SIZE);
+    ir_arena_start = ir_arena = malloc(IR_ARENA_SIZE);
     ir_arena_end = ir_arena + IR_ARENA_SIZE / sizeof(*ir_arena);
   }
 }
 
 void free_ir(void) {
-  free(ir_arena);
+  free(ir_arena_start);
   ir_arena = ir_arena_end = NULL;
 }
 
@@ -65,7 +66,8 @@ static bool is_lambda(ir e) {
 }
 
 static ir mkabs(size_t lvl, ir body) {
-  (void) lvl;
+  assert(body->lvl == lvl + 1);
+  body->lvl = lvl;
   body->arity++;
   return body;
 }
@@ -264,7 +266,7 @@ static ir parse_exp(const char **cursor, size_t lvl, scope s) {
     ++*cursor;
     SKIP_WHITESPACE(cursor);
     return parse_rest_of_lambda(cursor, lvl, s);
-  } else if (strncmp(*cursor, "λ", sizeof("λ")) == 0) {
+  } else if (strncmp(*cursor, "λ", sizeof("λ") - 1) == 0) {
     *cursor += sizeof("λ") - 1;
     SKIP_WHITESPACE(cursor);
     return parse_rest_of_lambda(cursor, lvl, s);
@@ -280,4 +282,57 @@ static ir parse_exp(const char **cursor, size_t lvl, scope s) {
     return func;
   }
 }
+
+/*************** Pretty-printer **************/
+
+static void print_var(var v);
+static void print_lets(size_t lvl, letlist lets);
+static void print_args(arglist args);
+static void print_term(ir term);
+
+static void print_var(var v) {
+  printf("x_%lu", v);
+}
+static void print_lets(size_t lvl, letlist lets) {
+  for (; lets; lets = lets->next, lvl++) {
+    printf("let ");
+    print_var(lvl);
+    printf(" = ");
+    print_term(lets->val);
+    printf(" in ");
+  }
+}
+static void print_args(arglist args) {
+  if (args) {
+    print_args(args->prev);
+    printf(" ");
+    print_var(args->arg);
+  }
+}
+static void print_term(ir term) {
+  if (!term->arity && !term->lets && !term->args) {
+    // Just a var -- no parens necessary
+    print_var(term->head);
+    return;
+  }
+  printf("(");
+  if (term->arity) {
+    printf("λ");
+    for (var v = term->lvl; v < term->lvl + term->arity; v++) {
+      printf(" ");
+      print_var(v);
+    }
+    printf(". ");
+  }
+  print_lets(term->lvl + term->arity, term->lets);
+  print_var(term->head);
+  print_args(term->args);
+  printf(")");
+}
+
+void print_ir(ir term) {
+  print_term(term);
+  printf("\n");
+}
+
 

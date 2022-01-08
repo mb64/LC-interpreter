@@ -86,7 +86,7 @@ void rt_rigid_entry_impl(void) {
 
   obj *new = alloc(rt_rigid_entry, new_size);
   *INFO_WORD(new) = (struct info_word) {
-    .size = INFO_WORD(self)->size,
+    .size = new_size,
     .var = INFO_WORD(self)->var,
   };
 

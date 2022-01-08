@@ -6,10 +6,13 @@
 #include "runtime/normalize.h"
 
 int main(int argc, const char **argv) {
-  const char *source = "λ x. x";
+  const char *source = argc >= 2 ? argv[1] : "λ x. x";
 
   printf("Parsing %s\n", source);
   ir term = parse(source);
+
+  printf("Parsed: ");
+  print_ir(term);
 
   printf("Compiling\n");
   void *code = compile_toplevel(term);
