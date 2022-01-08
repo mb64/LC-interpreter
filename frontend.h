@@ -13,6 +13,7 @@ typedef struct an_arg {
 } *arglist;
 
 typedef struct exp {
+  size_t lvl;
   size_t arity;
   letlist lets;
   letlist *lets_end;

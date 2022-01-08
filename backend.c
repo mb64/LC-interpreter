@@ -79,6 +79,7 @@ struct var_info {
 };
 
 struct env {
+  // do we need?
   struct env *up;
   var args_start;
   size_t envc;
@@ -87,14 +88,8 @@ struct env {
 };
 
 struct compile_result {
-  bool is_var;
-  union {
-    var var;
-    struct {
-      void *code;
-      struct env *env;
-    };
-  };
+  void *code;
+  struct env *env;
 };
 
 static void make_sure_can_access_var(struct env *env, var v);
@@ -190,10 +185,11 @@ static void store_arg(size_t idx, enum reg reg) {
 }
 
 static void blackhole_self(void) {
-  // TODO: comple:
-  //  *self = rt_blackhole_entry;
-  //  *(self + 8) = (struct info_word) { ... };
-  failwith("TODO");
+  // movabs rsi, rt_blackhole_entry
+  CODE(0x48, 0xbf, U64((uint64_t) rt_blackhole_entry));
+  STORE(RSI, SELF, 0);
+  CODE(0xbe, U32(2)); // mov esi, 2
+  STORE(RSI, SELF, 8);
 }
 
 
@@ -216,10 +212,10 @@ static void write_header(uint32_t size, uint32_t tag) {
 }
 
 static void *start_closure(size_t argc, size_t envc) {
-  assert(argc < UINT_MAX);
-  assert(envc < UINT_MAX);
+  assert(argc < INT_MAX);
+  assert(envc < INT_MAX);
 
-  write_header(envc + 1, FUN);
+  write_header(envc == 0 ? 0 : envc + 1, FUN);
   void *code_start = code_buf;
 
   CODE(
@@ -238,9 +234,9 @@ static void *start_closure(size_t argc, size_t envc) {
 }
 
 static void *start_thunk(size_t envc) {
-  assert(envc < UINT_MAX);
+  assert(envc < INT_MAX);
 
-  write_header(envc + 1, THUNK);
+  write_header(envc == 0 ? 0 : envc + 1, FUN);
   void *code_start = code_buf;
 
   CODE(
@@ -313,9 +309,12 @@ static void load_var(size_t lvl, struct env *this_env, enum reg dest, var v) {
 
 static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct compile_result locals[n]) {
   size_t words_allocated = 0;
-  for (size_t i = 0; i < n; i++)
-    if (!locals[i].is_var)
+  for (size_t i = 0; i < n; i++) {
+    if (locals[i].env->envc == 0)
+      words_allocated += 2;
+    else
       words_allocated += locals[i].env->envc + 1;
+  }
 
   heap_check(8 * words_allocated);
 
@@ -323,39 +322,36 @@ static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct co
   for (size_t i = 0; i < n; i++) {
     lvl++;
     add_imm(DATA_STACK, -8);
+    STORE(RDI, DATA_STACK, 0);
 
-    if (locals[i].is_var) {
-      // A variable: don't actually allocate, just store it to the stack
-      var v = locals[i].var;
+    // Store the entrypoint
+    // movabs rsi, entrypoint
+    CODE(0x48, 0xbe, U64((uint64_t) locals[i].code));
+    STORE(RSI, RDI, 0);
+
+    // Store the contents
+    struct env *env = locals[i].env;
+    assert(env->up == this_env);
+    size_t count = 0;
+    for (var v = 0; v < env->args_start; v++) {
+      if (!env->upvals[v].is_used)
+        continue;
+      count++;
       load_var(lvl, this_env, RSI, v);
-      STORE(RSI, DATA_STACK, 0);
-    } else {
-      // An actual allocation
-      STORE(RDI, DATA_STACK, 0);
-
-      // Store the entrypoint
-      // movabs rsi, entrypoint
-      CODE(0x48, 0xbe, U64((uint64_t) locals[i].code));
-      STORE(RSI, RDI, 0);
-
-      // Store the contents
-      struct env *env = locals[i].env;
-      assert(env->up == this_env);
-      size_t count = 0;
-      for (var v = 0; v < env->args_start; v++) {
-        if (!env->upvals[v].is_used)
-          continue;
-        count++;
-        load_var(lvl, this_env, RSI, v);
-        size_t offset = 8 + 8*env->upvals[v].env_idx;
-        STORE(RSI, RDI, offset);
-      }
-      assert(count == env->envc);
-
-      // Bump rdi, used as a temporary heap pointer
-      if (i != n-1)
-        add_imm(RDI, 8 + 8*env->envc);
+      size_t offset = 8 + 8*env->upvals[v].env_idx;
+      STORE(RSI, RDI, offset);
     }
+    assert(count == env->envc);
+
+    if (env->envc == 0) {
+      // Store the info_word
+      CODE(0xbe, U32(2)); // mov esi, 2
+      STORE(RSI, RDI, 8);
+    }
+
+    // Bump rdi, used as a temporary heap pointer
+    if (i != n-1)
+      add_imm(RDI, env->envc == 0 ? 16 : 8 + 8*env->envc);
   }
 }
 
@@ -471,7 +467,7 @@ static void add_dest_to_mov_state(size_t lvl, struct env *env, mov_state *s, int
       s->src_to_dest[src] = dest;
   } else {
     // It's from the env
-    make_sure_can_access_var(env, v);
+    assert(env->upvals[v].is_used);
     s->dest_info[dest] = (struct dest_info_item) {
       .src_type = FROM_ENV,
       .src_idx = env->upvals[v].env_idx,
@@ -483,9 +479,10 @@ static void add_dest_to_mov_state(size_t lvl, struct env *env, mov_state *s, int
 }
 
 static void do_the_moves(size_t lvl, ir term, struct env *env) {
-  size_t incoming_argc = term->arity + term->lets_len;
-  assert(lvl == env->args_start + incoming_argc);
+  assert(lvl == term->lvl + term->arity + term->lets_len);
+  assert(term->lvl == env->args_start);
 
+  size_t incoming_argc = term->arity + term->lets_len;
   size_t outgoing_argc = 0;
   for (arglist arg = term->args; arg; arg = arg->prev)
     ++outgoing_argc;
@@ -553,22 +550,78 @@ static void call_self(void) {
 void *compile_toplevel(ir term);
 
 
-static struct compile_result *compile(size_t lvl, struct env *up, ir term) {
-  failwith("TODO");
+static struct compile_result compile(struct env *up, ir term) {
+  size_t lvl = term->lvl;
+
+  // Allocate an environment
+  struct env *env = malloc(sizeof(struct env) + sizeof(struct var_info[lvl]));
+  env->up = up;
+  env->args_start = lvl;
+  env->envc = 0;
+  for (int i = 0; i < lvl; i++)
+    env->upvals[i].is_used = false;
+
+  // Populate the env
+  make_sure_can_access_var(env, term->head);
+  for (arglist arg = term->args; arg; arg = arg->prev)
+    make_sure_can_access_var(env, arg->arg);
+
+  // Compile all the lets
+  struct compile_result *locals =
+    malloc(sizeof(struct compile_result[term->lets_len]));
+  int i = 0;
+  for (letlist let = term->lets; let; let = let->next, i++)
+    locals[i] = compile(env, let->val);
+  assert(i == term->lets_len);
+
+  // Prologue
+  bool is_a_closure = term->arity > 0;
+  void *code_start;
+  if (term->arity == 0)
+    code_start = start_thunk(env->envc);
+  else
+    code_start = start_closure(term->arity, env->envc);
+
+  lvl += term->arity;
+
+  // Allocations
+  do_allocations(lvl, env, term->lets_len, locals);
+  for (int i = 0; i < term->lets_len; i++)
+    free(locals[i].env);
+  free(locals);
+
+  lvl += term->lets_len;
+
+  // Set up for call
+  do_the_moves(lvl, term, env);
+
+  // Execute the call!
+  call_self();
+
+  return (struct compile_result) {
+    .code = code_start,
+    .env = env,
+  };
 }
 
 void *compile_toplevel(ir term) {
-  failwith("TODO");
+  assert(term->lvl == 0);
+  struct compile_result res = compile(NULL, term);
+  assert(res.env->envc == 0);
+  free(res.env);
+  return res.code;
 }
 
 
 // TODO:
 //
-//  - [ ] Fix lowering to IR -- it does wrong things
+//  - [ ] Implement mmap and mprotect stuff
+//  - [X] Fix lowering to IR -- it does wrong things
 //  - [X] Fix the thunk entry code
 //  - [X] Implement parallel move for shuffling args
-//  - [ ] Tie it all together in a big compile function
+//  - [X] Tie it all together in a big compile function
 //  - [ ] *Really* tie everything together with a main function!
+//  - [ ] Fix all the (I'm sure many) mistakes
 //
 
 

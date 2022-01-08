@@ -48,7 +48,7 @@ static letlist cons_let(ir val, letlist next) {
 }
 
 static ir mkvar(size_t lvl, var v) {
-  ARENA_ALLOC(struct exp, 0, NULL, NULL, 0, v, NULL);
+  ARENA_ALLOC(struct exp, lvl, 0, NULL, NULL, 0, v, NULL);
 }
 #undef ARENA_ALLOC
 
@@ -66,22 +66,15 @@ static ir mkabs(size_t lvl, ir body) {
 
 static ir mkapp(size_t lvl, ir func, ir arg) {
   if (is_lambda(func)) {
-    // Applying a lambda
-    if (func->arity == 1) {
-      //  (λx. body) arg  ⇒  let x = arg in body
-      func->arity = 0;
-      func->lets = cons_let(arg, func->lets);
-      func->lets_len++;
-      if (!func->lets_end)
-        func->lets_end = &func->lets->next;
-      return func;
-    } else {
-      //  (λx y. body) arg  ⇒  let x = arg ; res = λy. body in res
-      // x is lvl, res is lvl+1
-      func->arity--;
-      ir result = mkvar(lvl+1);
-      failwith("TODO");
-    }
+    // Applying a lambda: let f = func ; x = arg in f x
+    // f becomes lvl, x becomes (lvl+1)
+    ir res = mkvar(lvl, lvl);
+    res->lets = cons_let(arg, NULL);
+    res->lets_end = &res->lets->next;
+    res->lets = cons_let(func, res->lets);
+    res->lets_len = 2;
+    res->args = snoc_arg(NULL, lvl+1);
+    return res;
   } else if (is_var(arg)) {
     // Applying a thunk to a var:
     //  (let ... in f args) x  ⇒  let ... in f args x
@@ -90,8 +83,7 @@ static ir mkapp(size_t lvl, ir func, ir arg) {
     return func;
   } else {
     // Appying a thunk to something complex:
-    //  (let ... in f args) arg ⇒ let ... in let x = arg in f args x
-    failwith("FIXME level shifting");
+    //  (let ... in f args) arg ⇒ let ... ; x = arg in f args x
     var new_var = lvl + func->lets_len;
 
     // add the let
