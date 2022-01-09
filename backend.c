@@ -169,6 +169,7 @@ static void mem64(uint8_t opcode, enum reg reg, enum reg ptr, int32_t offset) {
 }
 
 static void add_imm(enum reg reg, int32_t imm) {
+  if (imm == 0) return;
   if (-128 <= imm && imm < 128)
     CODE(REXW(0, 0, reg), 0x83, MODRM(3, 0, reg), (uint8_t) imm);
   else
@@ -296,7 +297,7 @@ static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct co
 
 static void heap_check(size_t bytes_allocated) {
   // TODO: better maximum allocation size control
-  assert(bytes_allocated < 131072);
+  assert(0 < bytes_allocated && bytes_allocated < 131072);
 
   add_imm(HEAP_PTR, - (int32_t) bytes_allocated);
   CODE(

@@ -159,8 +159,11 @@ static void print_var(unsigned int var) {
 static unsigned int *print(unsigned int *nf, bool parens) {
   switch (*nf) {
   case LAM:
+    if (parens) printf("(");
     printf("λ");
-    return print_rest_of_lam(nf);
+    nf = print_rest_of_lam(nf);
+    if (parens) printf(")");
+    return nf;
   case NE:
     nf++;
     unsigned int argc = *nf++;

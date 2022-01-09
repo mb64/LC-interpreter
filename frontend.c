@@ -186,6 +186,7 @@ static bool skip_whitespace(const char **cursor) {
         err_msg = "reached EOF during comment";
         return false;
       } else { /* fallthrough */ }
+      // Fall through
     default:
       *cursor = text;
       return true;
@@ -197,7 +198,7 @@ static size_t parse_ident(const char **cursor) {
   // parse [a-zA-Z_]+
   const char *start = *cursor;
   const char *end = start;
-#define IDENT_CHAR(c) ('A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || c == '_')
+#define IDENT_CHAR(c) (('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || c == '_')
   while (IDENT_CHAR(*end))
     end++;
   *cursor = end;
