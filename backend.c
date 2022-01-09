@@ -84,6 +84,7 @@ struct env {
   // do we need?
   struct env *up;
   var args_start;
+  var lets_start;
   size_t envc;
   // args_start elements, envc of which are used
   struct var_info upvals[];
@@ -94,6 +95,7 @@ struct compile_result {
   struct env *env;
 };
 
+static size_t var_to_stack_index(size_t lvl, struct env *env, var v);
 static void make_sure_can_access_var(struct env *env, var v);
 
 
@@ -176,6 +178,13 @@ static void add_imm(enum reg reg, int32_t imm) {
     CODE(REXW(0, 0, reg), 0x81, MODRM(3, 0, reg), U32((uint32_t) imm));
 }
 
+static size_t var_to_stack_index(size_t lvl, struct env *env, var v) {
+  assert(env->args_start <= v && v < lvl);
+  if (v >= env->lets_start)
+    return lvl - v - 1;
+  else
+    return v - env->args_start + lvl - env->lets_start;
+}
 static void make_sure_can_access_var(struct env *env, var v) {
   while (v < env->args_start && !env->upvals[v].is_used) {
     env->upvals[v].is_used = true;
@@ -189,6 +198,7 @@ static void load_env_item(enum reg reg, enum reg env, size_t idx) {
   LOAD(reg, env, 8 * idx + 8);
 }
 static void load_arg(enum reg reg, size_t idx) {
+  printf("Loading from the stack %lu\n", idx); // FIXME
   assert(idx < INT_MAX / 8);
   LOAD(reg, DATA_STACK, 8 * idx);
 }
@@ -292,7 +302,7 @@ static void *start_thunk(size_t envc) {
 
 /***************** Allocations ****************/
 
-static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct compile_result locals[n]);
+static void do_allocations(struct env *this_env, size_t n, struct compile_result locals[n]);
 
 
 static void heap_check(size_t bytes_allocated) {
@@ -318,14 +328,16 @@ static void heap_check(size_t bytes_allocated) {
 static void load_var(size_t lvl, struct env *this_env, enum reg dest, var v) {
   assert(v < lvl);
   if (v >= this_env->args_start) {
-    load_arg(dest, lvl - v - 1);
+    size_t idx = var_to_stack_index(lvl, this_env, v);
+    load_arg(dest, idx);
   } else {
     assert(this_env->upvals[v].is_used);
     load_env_item(dest, SELF, this_env->upvals[v].env_idx);
   }
 }
 
-static void do_allocations(size_t lvl, struct env *this_env, size_t n, struct compile_result locals[n]) {
+static void do_allocations(struct env *this_env, size_t n, struct compile_result locals[n]) {
+  size_t lvl = this_env->lets_start;
   if (n == 0)
     return;
 
@@ -401,7 +413,7 @@ typedef struct {
 
 // Store src to all its destinations, so that it can be overwritten afterwards.
 static void vacate_one(mov_state *s, int src) {
-  printf("Vacating %d\n"); // FIXME
+  printf("Vacating %d\n", src); // FIXME
 
   switch (s->dest_info[src].status) {
   case DONE:
@@ -487,10 +499,10 @@ static void vacate_one(mov_state *s, int src) {
 }
 
 static void add_dest_to_mov_state(size_t lvl, struct env *env, mov_state *s, int dest, var v) {
-  assert(v <= lvl);
+  assert(v < lvl);
   if (v >= env->args_start) {
     // It's from the data stack
-    int src = lvl - v - 1;
+    int src = var_to_stack_index(lvl, env, v);
     s->dest_info[dest] = (struct dest_info_item) {
       .src_type = FROM_ARGS,
       .src_idx = src,
@@ -553,17 +565,20 @@ static void do_the_moves(size_t lvl, ir term, struct env *env) {
 
   int dest_start =
     outgoing_argc < incoming_argc ? incoming_argc - outgoing_argc : 0;
-  int dest = 0;
-  for (; dest < dest_start; dest++)
+  for (int dest = 0; dest < dest_start; dest++)
     s.dest_info[dest].status = NOT_STARTED;
-  for (arglist arg = term->args; arg; dest++, arg = arg->prev)
+  int dest = n - 1;
+  for (arglist arg = term->args; arg; dest--, arg = arg->prev)
     add_dest_to_mov_state(lvl, env, &s, dest, arg->arg);
-  assert(dest == n);
+  assert(dest == dest_start - 1);
   add_dest_to_mov_state(lvl, env, &s, n, term->head);
 
   // FIXME
   for (int i = 0; i < n + 1; i++)
     printf("%d->%d ", i, s.src_to_dest[i]);
+  printf("\nsame source links:");
+  for (int i = 0; i < n + 1; i++)
+    printf(" %d->%d", i, s.dest_info[i].next_with_same_src);
   printf("\n");
 
   // Do all the moving
@@ -602,6 +617,7 @@ static struct compile_result compile(struct env *up, ir term) {
   struct env *env = malloc(sizeof(struct env) + sizeof(struct var_info[lvl]));
   env->up = up;
   env->args_start = lvl;
+  env->lets_start = lvl + term->arity;
   env->envc = 0;
   for (int i = 0; i < lvl; i++)
     env->upvals[i].is_used = false;
@@ -629,7 +645,7 @@ static struct compile_result compile(struct env *up, ir term) {
   lvl += term->arity;
 
   // Allocations
-  do_allocations(lvl, env, term->lets_len, locals);
+  do_allocations(env, term->lets_len, locals);
   for (int i = 0; i < term->lets_len; i++)
     free(locals[i].env);
   free(locals);
