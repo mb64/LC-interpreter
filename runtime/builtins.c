@@ -68,7 +68,7 @@ void rt_pap_entry_impl(void) {
   size_t extra_args = INFO_WORD(self)->size - 3;
   argc += extra_args;
   data_stack -= extra_args;
-  memcpy(data_stack, &self->contents[2], extra_args);
+  memcpy(data_stack, &self->contents[2], sizeof(word[extra_args]));
   self = fun;
   // Hope for a tail call :/
   return self->entrypoint();
