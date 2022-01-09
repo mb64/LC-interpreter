@@ -74,15 +74,26 @@ static ir mkabs(size_t lvl, ir body) {
 
 static ir mkapp(size_t lvl, ir func, ir arg) {
   if (is_lambda(func)) {
-    // Applying a lambda: let f = func ; x = arg in f x
-    // f becomes lvl, x becomes (lvl+1)
-    ir res = mkvar(lvl, lvl);
-    res->lets = cons_let(arg, NULL);
-    res->lets_end = &res->lets->next;
-    res->lets = cons_let(func, res->lets);
-    res->lets_len = 2;
-    res->args = snoc_arg(NULL, lvl+1);
-    return res;
+    if (is_var(arg)) {
+      // Applying a lambda to a var: let f = func in f x
+      // f becomes lvl
+      ir res = mkvar(lvl, lvl);
+      res->lets = cons_let(func, NULL);
+      res->lets_end = &res->lets->next;
+      res->lets_len = 1;
+      res->args = snoc_arg(NULL, arg->head);
+      return res;
+    } else {
+      // Applying a lambda to a complex thing: let f = func ; x = arg in f x
+      // f becomes lvl, x becomes (lvl+1)
+      ir res = mkvar(lvl, lvl);
+      res->lets = cons_let(arg, NULL);
+      res->lets_end = &res->lets->next;
+      res->lets = cons_let(func, res->lets);
+      res->lets_len = 2;
+      res->args = snoc_arg(NULL, lvl+1);
+      return res;
+    }
   } else if (is_var(arg)) {
     // Applying a thunk to a var:
     //  (let ... in f args) x  ⇒  let ... in f args x

@@ -185,7 +185,7 @@ static void make_sure_can_access_var(struct env *env, var v) {
 
 static void load_env_item(enum reg reg, enum reg env, size_t idx) {
   assert(idx < INT_MAX / 8 - 8);
-  STORE(reg, env, 8 * idx + 8);
+  LOAD(reg, env, 8 * idx + 8);
 }
 static void load_arg(enum reg reg, size_t idx) {
   assert(idx < INT_MAX / 8);

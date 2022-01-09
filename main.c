@@ -26,7 +26,7 @@ int main(int argc, const char **argv) {
   printf("Normalizing\n");
   unsigned int *nf = normalize(entrypoint);
 
-  printf("And here's the normal form:\n");
+  printf("Normal form: ");
   print_normal_form(nf);
 
   free(nf);
