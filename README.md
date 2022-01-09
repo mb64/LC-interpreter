@@ -21,13 +21,18 @@ Only tested on Linux, and it only supports x86\_64.
 ## Future things
 
 Really ought to have:
+ - Big enough tests to actually test the GC
  - Add a global term size limit
  - mmap the data stack with a guard page below it
  - Make sure allocations are inlined in the runtime
+ - Benchmarks
 
 Want to have:
  - Add support for `fix`, let/letrec
  - Nice CLI and REPL
 
+Probably won't have but would be cool:
+ - Use it in some algorithm that requires strong normalization, like a dependent
+   typechecker or possibly supercompilation by evaluation
 
 
