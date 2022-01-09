@@ -86,6 +86,7 @@ Compiled entry code actions:
     Else:
       push self to data stack
       push argc to call stack
+      set argc := 0
       call rest_of_code
       pop argc
       call rt_update_thunk

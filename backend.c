@@ -257,14 +257,16 @@ static void *start_thunk(size_t envc) {
   CODE(
     // test argc,argc (argc is %r15)
     0x4d, 0x85, 0xff,
-    // jz adjacent_updates (+31)
-    0x74, 31,
+    // jz adjacent_updates (+34)
+    0x74, 34,
     // sub data_stack, $8 (data_stack is %r12)
     0x49, 0x83, 0xec, 0x08,
     // mov [data_stack], self (self is rbx)
     0x49, 0x89, 0x1c, 0x24,
     // push argc (argc is r15)
     0x41, 0x57,
+    // xor argc, argc
+    0x4d, 0x31, 0xff,
     // call rest_of_code (+28)
     0xe8, U32(28),
     // pop argc (argc is %r15)
