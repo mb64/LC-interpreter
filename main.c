@@ -8,28 +8,21 @@
 int main(int argc, const char **argv) {
   const char *source = argc >= 2 ? argv[1] : "λ x. x";
 
-  printf("Parsing %s\n", source);
+  printf("Input: %s\n", source);
+  printf("Compiling... ");
+  fflush(stdout);
+
   ir term = parse(source);
-
-  printf("Parsed: ");
-  print_ir(term);
-
-  printf("Compiling\n");
   void *code = compile_toplevel(term);
-
+  compile_finalize();
   free_ir();
 
-  printf("Mapping as executable\n");
-  compile_finalize();
-  void (*entrypoint)(void) = code;
-
-  printf("Normalizing\n");
-  unsigned int *nf = normalize(entrypoint);
+  printf("Compiled! Normalizing...\n");
+  unsigned int *nf = normalize(code);
 
   printf("Normal form: ");
   print_normal_form(nf);
 
   free(nf);
-
 }
 

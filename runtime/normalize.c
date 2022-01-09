@@ -72,7 +72,6 @@ static void restore_regs(struct saved_regs regs) {
 
 // Apply 'self' to an argument, returning the value in 'self'
 static void apply(obj *arg) {
-  printf("Applying %p to %p! Data stack is %p\n", self, arg, data_stack);
   obj *blackhole_to_update = alloc(rt_blackhole_entry, 2);
   *INFO_WORD(blackhole_to_update) = (struct info_word) { .size = 2, .var = 0 };
   *--data_stack = blackhole_to_update;
@@ -80,18 +79,15 @@ static void apply(obj *arg) {
   argc = 1;
   self->entrypoint();
   rt_update_thunk();
-  printf("Done applying %p! Data stack is %p\n", self, data_stack); // FIXME
 }
 // Evaluate 'self', returning the value in 'self'
 static void eval(void) {
-  printf("Evaling %p! Data stack is %p\n", self, data_stack);
   obj *blackhole_to_update = alloc(rt_blackhole_entry, 2);
   *INFO_WORD(blackhole_to_update) = (struct info_word) { .size = 2, .var = 0 };
   *--data_stack = blackhole_to_update;
   argc = 0;
   self->entrypoint();
   rt_update_thunk();
-  printf("Done evaling %p! Data stack is %p\n", self, data_stack); // FIXME
 }
 
 // Write the normal form of 'self' (a value) to the buffer

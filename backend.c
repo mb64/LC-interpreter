@@ -198,7 +198,6 @@ static void load_env_item(enum reg reg, enum reg env, size_t idx) {
   LOAD(reg, env, 8 * idx + 8);
 }
 static void load_arg(enum reg reg, size_t idx) {
-  printf("Loading from the stack %lu\n", idx); // FIXME
   assert(idx < INT_MAX / 8);
   LOAD(reg, DATA_STACK, 8 * idx);
 }
@@ -413,15 +412,11 @@ typedef struct {
 
 // Store src to all its destinations, so that it can be overwritten afterwards.
 static void vacate_one(mov_state *s, int src) {
-  printf("Vacating %d\n", src); // FIXME
-
   switch (s->dest_info[src].status) {
   case DONE:
-    printf("It was done\n"); // FIXME
     break;
 
   case IN_PROGRESS:
-    printf("A Cycle!\n"); // FIXME
     // A cycle! Use rdi as a temporary register to break the cycle
     assert(s->in_rdi == -1);
     s->in_rdi = src;
@@ -432,9 +427,7 @@ static void vacate_one(mov_state *s, int src) {
     break;
 
   case NOT_STARTED:
-    printf("Not started\n"); // FIXME
     if (s->src_to_dest[src] == -1) {
-      printf("Didn't do anything\n"); // FIXME
       // Don't do anything if it has no destinations
       s->dest_info[src].status = DONE;
       break;
@@ -492,7 +485,6 @@ static void vacate_one(mov_state *s, int src) {
     if (s->in_rdi == src)
       s->in_rdi = -1;
     s->dest_info[src].status = DONE;
-    printf("Done with %d!\n", src); // FIXME
 #   undef FOREACH_DEST
     break;
   }
@@ -525,10 +517,6 @@ static void add_dest_to_mov_state(size_t lvl, struct env *env, mov_state *s, int
 }
 
 static void do_the_moves(size_t lvl, ir term, struct env *env) {
-  //FIXME
-  printf("Moving for ");
-  print_ir(term);
-
   assert(lvl == term->lvl + term->arity + term->lets_len);
   assert(term->lvl == env->args_start);
 
@@ -536,8 +524,6 @@ static void do_the_moves(size_t lvl, ir term, struct env *env) {
   size_t outgoing_argc = 0;
   for (arglist arg = term->args; arg; arg = arg->prev)
     ++outgoing_argc;
-  printf("Outgoing argc is %d, incoming %d\n", outgoing_argc, incoming_argc);
-
 
   // Resize the data stack
   size_t n;
@@ -572,14 +558,6 @@ static void do_the_moves(size_t lvl, ir term, struct env *env) {
     add_dest_to_mov_state(lvl, env, &s, dest, arg->arg);
   assert(dest == dest_start - 1);
   add_dest_to_mov_state(lvl, env, &s, n, term->head);
-
-  // FIXME
-  for (int i = 0; i < n + 1; i++)
-    printf("%d->%d ", i, s.src_to_dest[i]);
-  printf("\nsame source links:");
-  for (int i = 0; i < n + 1; i++)
-    printf(" %d->%d", i, s.dest_info[i].next_with_same_src);
-  printf("\n");
 
   // Do all the moving
   for (int i = 0; i < n + 1; i++) {
@@ -672,22 +650,4 @@ void *compile_toplevel(ir term) {
   free(res.env);
   return res.code;
 }
-
-
-// TODO:
-//
-//  - [X] Implement mmap and mprotect stuff
-//  - [X] Fix lowering to IR -- it does wrong things
-//  - [X] Fix the thunk entry code
-//  - [X] Implement parallel move for shuffling args
-//  - [X] Tie it all together in a big compile function
-//  - [X] *Really* tie everything together with a main function!
-//  - [ ] Fix all the (I'm sure many) mistakes
-//
-
-
-
-
-
-
 
