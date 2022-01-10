@@ -104,7 +104,7 @@ static void init_code_buf(void) {
     return;
 
   // Need to mmap it so that I can mprotect it later.
-  size_t len = 8 * 1024 * 1024;
+  const size_t len = 8 * 1024 * 1024;
   code_buf = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (!code_buf)
     failwith("Couldn't allocate buffer for code\n");
@@ -261,7 +261,7 @@ static void *start_closure(size_t argc, size_t envc) {
 static void *start_thunk(size_t envc) {
   assert(envc < INT_MAX);
 
-  write_header(envc == 0 ? 0 : envc + 1, FUN);
+  write_header(envc == 0 ? 0 : envc + 1, THUNK);
   void *code_start = code_buf;
 
   CODE(
@@ -279,15 +279,16 @@ static void *start_thunk(size_t envc) {
     0x4d, 0x31, 0xff,
     // call rest_of_code (+28)
     0xe8, U32(28),
-    // pop argc (argc is %r15)
-    0x41, 0x5f,
     // movabs rdi, rt_update_thunk
     0x48, 0xbf, U64((size_t) rt_update_thunk),
     // call rdi
     0xff, 0xd7,
+    // pop argc (argc is %r15)
+    0x41, 0x5f,
     // jmp [qword ptr [self]] (self is rbx)
     0xff, 0x23,
     // adjacent_updates:
+    // FIXME: calls this function with a misaligned stack
     // movabs rdi, rt_avoid_adjacent_update_frames
     0x48, 0xbf, U64((size_t) rt_adjacent_update_frames),
     // call rdi
@@ -315,6 +316,7 @@ static void heap_check(size_t bytes_allocated) {
     // jae alloc_was_good (offset depends on imm8 vs imm32)
     // TODO: add assertions that this is correct
     0x73, (bytes_allocated <= 128 ? 16 : 19),
+    // FIXME: calls with misaligned stack
     // movabs rdi, rt_gc
     0x48, 0xbf, U64((size_t) rt_gc),
     // call rdi
