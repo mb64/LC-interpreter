@@ -192,3 +192,28 @@ static unsigned int *print_rest_of_lam(unsigned int *nf) {
   }
 }
 
+
+/************** Converting from church numerals ************/
+
+size_t parse_church_numeral(unsigned int *nf) {
+# define CONSUME(x) if (*nf++ != x) failwith("Not a church numeral")
+  CONSUME(LAM);
+  unsigned s = *nf++;
+  CONSUME(LAM);
+  unsigned z = *nf++;
+  size_t n = 0;
+  for(;;) {
+    CONSUME(NE);
+    unsigned argc = *nf++;
+    if (argc == 0) {
+      CONSUME(z);
+      return n;
+    } else if (argc == 1) {
+      CONSUME(s);
+      n++;
+      continue;
+    } else {
+      failwith("Not a church numeral");
+    }
+  }
+}

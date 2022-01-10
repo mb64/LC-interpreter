@@ -156,7 +156,7 @@ ir parse(const char *text) {
 
   if (!result)
     // TODO: better error message printing
-    printf("parse error at byte %ld :/\n%s\n", err_loc - text, err_msg);
+    printf("parse error at byte %zu :/\n%s\n", err_loc - text, err_msg);
 
   return result;
 }
@@ -303,7 +303,7 @@ static void print_args(arglist args);
 static void print_term(ir term);
 
 static void print_var(var v) {
-  printf("x_%lu", v);
+  printf("x_%zu", v);
 }
 static void print_lets(size_t lvl, letlist lets) {
   for (; lets; lets = lets->next, lvl++) {

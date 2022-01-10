@@ -16,4 +16,5 @@ unsigned int *normalize(void (*entrypoint)(void));
 
 void print_normal_form(unsigned int *nf);
 
+size_t parse_church_numeral(unsigned int *nf);
 

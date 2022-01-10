@@ -68,7 +68,7 @@ void minor_gc(void) {
   if ((size_t) old_top - (size_t) old_start < NURSERY_BYTES)
     return major_gc();
 
-  /* DEBUG("Minor GC\n"); */
+  DEBUG("Minor GC\n");
 
   collect_roots(MINOR);
 
@@ -117,7 +117,7 @@ void major_gc(void) {
   remembered_set_size = 0;
   nursery_top = nursery_start + NURSERY_BYTES / sizeof(word);
 
-  DEBUG("copied %llu bytes\n", used_space);
+  DEBUG("copied %zu bytes\n", used_space);
 }
 
 static void collect_roots(enum gc_type type) {
