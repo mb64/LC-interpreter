@@ -1,4 +1,4 @@
-CFLAGS = -Wall -O -foptimize-sibling-calls -g
+CFLAGS = -Wall -O2 -foptimize-sibling-calls -g
 
 RT_OBJS = build/gc.o build/builtins.o build/normalize.o
 OBJS = build/frontend.o build/backend.o build/main.o
@@ -13,3 +13,7 @@ $(OBJS): build/%.o: %.c build *.h runtime/*.h
 
 build:
 	mkdir -p build
+
+.PHONY: bench
+bench: lc
+	hyperfine './lc "$$(cat bench.lc)"'

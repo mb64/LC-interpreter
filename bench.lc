@@ -1,0 +1,13 @@
+/- Computes 3^(2^4) - 3^(2^4) = 0 = λ s z. z
+ - Takes about 3.5 seconds to run on my computer
+ -/
+(λ big_number minus. minus big_number big_number)
+  /- The big number, 3^(2^4) = 43'046'721 -/
+  ((\s z. s(s(s(s z)))) (\s z. s(s z)) (\s z. s(s(s z))))
+  /- O(n) church numeral subtraction algorithm -/
+  (λ n m s z.
+    n (λ y k. k (s (y (λ a b. a))) y)
+      (λ k. k z (λ _. z))
+      (m (λ k a b. b k) (λ a b. a)))
+
+
