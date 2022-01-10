@@ -315,12 +315,15 @@ static void heap_check(size_t bytes_allocated) {
     0x4d, 0x39, 0xf5,
     // jae alloc_was_good (offset depends on imm8 vs imm32)
     // TODO: add assertions that this is correct
-    0x73, (bytes_allocated <= 128 ? 16 : 19),
-    // FIXME: calls with misaligned stack
+    0x73, (bytes_allocated <= 128 ? 24 : 27),
+    // sub rsp, 8 (align the stack for the call)
+    0x48, 0x83, 0xec, 8,
     // movabs rdi, rt_gc
     0x48, 0xbf, U64((size_t) rt_gc),
     // call rdi
-    0xff, 0xd7
+    0xff, 0xd7,
+    // add rsp, 8
+    0x48, 0x83, 0xc4, 8
   );
   add_imm(HEAP_PTR, - (int32_t) bytes_allocated);
   // alloc_was_good:
