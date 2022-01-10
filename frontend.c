@@ -146,14 +146,19 @@ static const char *err_loc = NULL;
 ir parse(const char *text) {
   arena_init();
   const char *cursor = text;
-  skip_whitespace(&cursor);
-  ir result = parse_exp(&cursor, 0, NULL);
+  ir result = NULL;
+
+  if (!skip_whitespace(&cursor))
+    goto end;
+
+  result = parse_exp(&cursor, 0, NULL);
   if (result && *cursor != '\0') {
     result = NULL;
     err_loc = text;
     err_msg = "expected eof";
   }
 
+end:
   if (!result)
     // TODO: better error message printing
     printf("parse error at byte %zu :/\n%s\n", err_loc - text, err_msg);
@@ -175,16 +180,17 @@ static bool skip_whitespace(const char **cursor) {
         // comment start!
         text += 2;
         while (text[0]) {
-          if (text[0] == '-' && text[1] == '/') {
-            text += 2;
-            continue;
-          }
+          if (text[0] == '-' && text[1] == '/')
+            break;
           text++;
         }
-        // text[0] == '\0'
-        err_loc = *cursor = text;
-        err_msg = "reached EOF during comment";
-        return false;
+        if (!text[0]) {
+          err_loc = *cursor = text;
+          err_msg = "reached EOF during comment";
+          return false;
+        }
+        text += 2;
+        continue;
       } else { /* fallthrough */ }
       // Fall through
     default:
