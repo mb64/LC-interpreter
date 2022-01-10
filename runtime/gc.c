@@ -48,21 +48,6 @@ void gc_init(void) {
   data_stack = data_stack_end = data_stack_start + DATA_STACK_BYTES / sizeof(obj *);
 }
 
-// This is only called from C code; generated code has this inlined
-obj *alloc(void (*entrypoint)(void), size_t size) {
-  assert(sizeof(word) * size < NURSERY_BYTES);
-  /* DEBUG("Allocating %d words\n", size); */
-  word *ptr = nursery_top - size;
-  if (ptr < nursery_start) {
-    minor_gc();
-    ptr = nursery_top - size;
-  }
-  nursery_top = ptr;
-  obj *o = (obj *) ptr;
-  o->entrypoint = entrypoint;
-  return o;
-}
-
 void minor_gc(void) {
   // conservative heap check
   if ((size_t) old_top - (size_t) old_start < NURSERY_BYTES)

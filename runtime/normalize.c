@@ -45,7 +45,6 @@ unsigned int *normalize(void (*entrypoint)(void)) {
   obj *main = alloc(entrypoint, 2);
   *INFO_WORD(main) = (struct info_word) { .size = 2, .var = 0 };
   self = main;
-  eval();
 
   quote();
 
@@ -82,18 +81,33 @@ static void apply(obj *arg) {
 }
 // Evaluate 'self', returning the value in 'self'
 static void eval(void) {
-  obj *blackhole_to_update = alloc(rt_blackhole_entry, 2);
-  *INFO_WORD(blackhole_to_update) = (struct info_word) { .size = 2, .var = 0 };
-  *--data_stack = blackhole_to_update;
-  argc = 0;
-  self->entrypoint();
-  rt_update_thunk();
+  switch (GC_DATA(self)->tag) {
+  case PAP:
+  case RIGID:
+  case FUN:
+    return;
+  case REF:
+    self = (obj *) self->contents[0];
+    return eval();
+  case THUNK:
+    obj *blackhole_to_update = alloc(rt_blackhole_entry, 2);
+    *INFO_WORD(blackhole_to_update) = (struct info_word) { .size = 2, .var = 0 };
+    *--data_stack = blackhole_to_update;
+    argc = 0;
+    self->entrypoint();
+    rt_update_thunk();
+    return;
+  default:
+    failwith("unreachable");
+  }
 }
 
-// Write the normal form of 'self' (a value) to the buffer
+// Write the normal form of 'self' to the buffer
 static void quote(void) {
   // the next variable id to use for a lambda
   unsigned int next_var = 0;
+
+  eval();
 
   // Use the data stack as a worklist
   obj **data_stack_end = data_stack;
@@ -135,6 +149,8 @@ static void quote(void) {
   }
 }
 
+
+/***************** Printing ****************/
 
 static unsigned int *print(unsigned int *nf, bool parens);
 static unsigned int *print_rest_of_lam(unsigned int *nf);

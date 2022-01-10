@@ -19,6 +19,7 @@ void rt_too_few_args(void) {
 }
 
 void rt_update_thunk(void) {
+  assert(argc == 0);
   obj *thunk = *data_stack++;
   thunk->entrypoint = rt_ref_entry;
   thunk->contents[0] = (word) self;
