@@ -22,10 +22,10 @@ Only tested on Linux, and it only supports x86\_64.
 
 Normalizing a term in the λ-calculus means applying the β-reduction rule until
 it can't be simplified any more.  While it's usually described using syntactic
-substitution, the fastest algorithm in practice is to run it like a regular
-functional programming language, with a catch: we need to run programs with free
-variables in them, requiring some special runtime support and some objects with
-free variables in them.
+substitution, the fastest algorithm in practice (normalization by evaluation)
+involves running it like a regular functional programming language, with a
+catch: we need to run programs with free variables in them, requiring some
+special runtime support.
 
 There are, of course, many ways to run a regular functional programming
 language: eager vs lazy evaluation, interpreted vs bytecode interpreted vs
